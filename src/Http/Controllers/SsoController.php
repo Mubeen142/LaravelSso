@@ -24,6 +24,8 @@ class SsoController
 
         try {
             Auth::loginUsingId($this->getToken($token));
+            $this->invalidateToken($token);
+
             return redirect()->intended('/');
         } catch(\Exception $error) {
             return redirect()->back()->withError('Something went wrong, please try again.');
