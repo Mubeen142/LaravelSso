@@ -69,9 +69,9 @@ class SsoController
     /**
      * Returns the value of the token
      *
-     * @return bool
+     * @return mixed
      */
-    protected function getToken(token)
+    protected function getToken($token)
     {
         return Cache::get($token);
     }
@@ -81,7 +81,7 @@ class SsoController
      *
      * @return bool
      */
-    protected function hasToken(token): bool
+    protected function hasToken($token): bool
     {
         return Cache::has($token);
     }
@@ -91,7 +91,7 @@ class SsoController
      *
      * @return void
      */
-    protected static function invalidateToken(token)
+    protected static function invalidateToken($token)
     {
         Cache::forget($token);
     }
