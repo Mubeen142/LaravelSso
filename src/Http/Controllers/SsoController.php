@@ -2,59 +2,97 @@
 
 namespace Gigabait\Sso\Http\Controllers;
 
-use Illuminate\Routing\Controller;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Encryption\Encrypter;
 use Pterodactyl\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 
-class SsoController extends Controller
+class SsoController 
 {
-    public function login(Request $request)
+
+    /**
+     * Attempt to login the user
+     *
+     * @return Redirect
+     */
+    public function handle($token)
     {
-        $route = '/';
-        if ($request->has('token')) {
-
-            if ($request->has('param')) {
-                $param = json_decode($request->input('param'), true);
-                if (isset($param['server'])) {
-                    $route = "/server/{$param['server']}";
-                }
-            }
-
-            $secretKey = config('sso.secret_key');
-            if (strlen($secretKey) !== 32) {
-                return redirect('/login')->withErrors(['sso_error' => 'Secret key length must be 32 characters.']);
-            }
-
-            $cipher = config('app.cipher');
-            $encrypter = new Encrypter($secretKey, $cipher);
-            $encryptedToken = $request->input('token');
-
-            try {
-                $decryptedToken = $encrypter->decrypt($encryptedToken);
-            } catch (\Illuminate\Contracts\Encryption\DecryptException $e) {
-                return redirect('/login')->withErrors(['sso_error' => $e->getMessage()]);;
-            }
-
-            $authMarkerData = json_decode($decryptedToken, true);
-            if (hash_equals($authMarkerData['secret_key'], $secretKey)) {
-                $user = User::whereEmail($authMarkerData['email'])->firstOrFail();
-                if ($user) {
-
-                    if(!$user['root_admin']) {
-                        return redirect()->back()->withError('You cannot automatically login to admin accounts.');
-                    }
-
-                    if($user['2fa']) {
-                        return redirect()->back()->withError('Logging into accounts with 2 Factor Authentication enabled is not supported.');
-                    }
-                    
-                    Auth::loginUsingId($user->id);
-                    return redirect()->intended($route);
-                }
-            }
+        if(!$this->hasToken($token)) {
+            return redirect()->back()->withError('Token does not exists or has expired');
         }
-        return redirect('/login');
+
+        try {
+            Auth::loginUsingId($this->getToken($token));
+            return redirect()->intended('/');
+        } catch(\Exception $error) {
+            return redirect()->back()->withError('Something went wrong, please try again.');
+        }
+    }
+
+    /**
+     * Handle incoming webhook
+     *
+     * @return $token
+     */
+    public function webhook(Request $request)
+    {
+        if($request->input('sso_secret') !== config('sso.secret_key')) {
+            return response(['success' => false, 'message' => 'Please provide valid credentials'], 403);
+        }
+
+        $user = User::findOrFail($request->input('user_id'));
+        if($user->root_admin) {
+            return response(['success' => false, 'message' => 'You cannot automatically login to admin accounts.'], 501);
+        }
+
+        if($user->2fa) {
+            return response(['success' => false, 'message' => 'Logging into accounts with 2 Factor Authentication enabled is not supported.'], 501);
+        }
+
+        return response(['success' => true, 'token' => $this->generateToken($request->input('user_id'))], 200);
+    }
+
+    /**
+     * Generate a random access token and store the user_id inside
+     * Tokens are only valid for 60 seconds
+     *
+     * @return $token
+     */
+    protected function generateToken($user_id): bool
+    {
+        $token = Str::random(64);
+        Cache::add($token, $user_id, 60);
+        return $token;
+    }
+
+    /**
+     * Returns the value of the token
+     *
+     * @return bool
+     */
+    protected function getToken(token)
+    {
+        return Cache::get($token);
+    }
+
+    /**
+     * Returns true or false based on if the token exists
+     *
+     * @return bool
+     */
+    protected function hasToken(token): bool
+    {
+        return Cache::has($token);
+    }
+
+    /**
+     * Invalidates the token so it can no longer be used
+     *
+     * @return void
+     */
+    protected static function invalidateToken(token)
+    {
+        Cache::forget($token);
     }
 }
