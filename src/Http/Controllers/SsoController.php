@@ -63,8 +63,8 @@ class SsoController
      */
     protected function generateToken($user_id): bool
     {
-        $token = Str::random(64);
-        Cache::add($token, $user_id, 60);
+        $token = Str::random(config('sso.token_length', 48));
+        Cache::add($token, $user_id, config('sso.token_lifetime', 60));
         return $token;
     }
 
